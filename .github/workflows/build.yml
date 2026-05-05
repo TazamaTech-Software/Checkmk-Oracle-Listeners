@@ -1,9 +1,12 @@
-name: Build and Release MKP
+name: Build MKP
 
 on:
   push:
+    branches: [main]
     tags:
-      - "v*"
+      - 'v[0-9]*'
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -12,26 +15,82 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
+  # ── Syntax validation ──────────────────────────────────────────────────────
+  validate:
+    name: Validate sources
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.12'
 
-      - name: Extract version from tag
+      - name: Python syntax check
+        run: |
+          find local -name '*.py' -print0 | xargs -0 python -m py_compile
+          echo "All Python files passed syntax check"
+
+      - name: Perl syntax check
+        run: |
+          find local -name '*.pl' -print0 | xargs -0 -I{} perl -c {}
+          echo "All Perl files passed syntax check"
+
+  # ── Build MKP ──────────────────────────────────────────────────────────────
+  build:
+    name: Build MKP
+    runs-on: ubuntu-latest
+    needs: validate
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Determine version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0+$(git rev-parse --short HEAD)"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Building version: ${VERSION}"
 
       - name: Build MKP
-        run: python build.py --version "${{ steps.version.outputs.VERSION }}" --output-dir dist/
+        run: python build.py --version "${{ steps.version.outputs.version }}"
 
-      - name: Create GitHub Release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle_rac_services-${{ steps.version.outputs.version }}
+          path: '*.mkp'
+          if-no-files-found: error
+          retention-days: 30
+
+  # ── GitHub release (tags only) ─────────────────────────────────────────────
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: oracle_rac_services-${{ needs.build.outputs.version }}
+
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.mkp
+          files: '*.mkp'
+          generate_release_notes: true
+          fail_on_unmatched_files: true
