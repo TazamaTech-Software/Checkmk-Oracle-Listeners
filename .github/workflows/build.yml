@@ -70,7 +70,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oracle_rac_services-${{ steps.version.outputs.version }}
+          name: oracle_listeners-${{ steps.version.outputs.version }}
           path: '*.mkp'
           if-no-files-found: error
           retention-days: 30
@@ -86,7 +86,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: oracle_rac_services-${{ needs.build.outputs.version }}
+          name: oracle_listeners-${{ needs.build.outputs.version }}
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
